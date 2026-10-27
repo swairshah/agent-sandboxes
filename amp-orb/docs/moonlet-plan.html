@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Moonlet Orb Architecture</title>
+<link rel="stylesheet" href="/Users/swair/.claude/plugins/cache/claude-community/html-plan/1.0.0/skills/html-plan/runtime/htmlplan.css">
+<script src="/Users/swair/.claude/plugins/cache/claude-community/html-plan/1.0.0/skills/html-plan/runtime/htmlplan.js" defer></script>
+<body>
+
+<header>
+  <h1>Orbs for pi-durable in Moonlet</h1>
+  <details class="thread"><summary>Why · 2 requests</summary>
+    <doc-quote via="prompt" from="the user">IF i wanted to create an open source version of the stuff that runs in the orb (so that i can set it up with pi-durable instead of amp) do it in this directory</doc-quote>
+    <doc-quote via="prompt" from="the user">using this explain the architecture of our orb replication for pi</doc-quote>
+  </details>
+</header>
+
+<main>
+<doc-plan>
+
+<!-- ═════ 1 ═════ -->
+<doc-claim>
+  <p>A user starts a thread. The agent works on its own remote machine.</p>
+  <doc-mock frame="terminal" title="moonlet" w="470"><template><span class="dim">$</span> moonlet new --repo https://github.com/you/app \
+    "Run the tests"
+thread <b>t-a27b5e6c</b> (orb <b>moonlet-a27b5e6c</b>)
+<span class="dim">[setup exit 0 in /home/exedev/workspace/repo]
+cloning https://github.com/you/app
+running .agents/setup</span>
+<span class="dim">→ bash {"command":"bun test"}</span>
+<span class="dim"> 12 pass
+ 0 fail</span>
+All 12 tests pass.
+<span class="dim">── run finished ──</span></template></doc-mock>
+
+  <doc-claim>
+    <p>The agent loop runs on the control plane. The orb runs only tools.</p>
+    <doc-calls title="One message" caption="pi-durable asks for the environment only when a tool or the prompt needs it.">
+<script type="text/plain">
+  POST /api/threads/:id/messages               @ src/server/main.ts:231
+    Threads.send()                             @ src/server/threads.ts:122
+      orbs.busy(orb, +1)                       @ src/server/threads.ts:125
+      conversation.submit(input)               @ src/server/threads.ts:127
+
+  Harness env factory                          @ src/server/threads.ts:83
+    threads.prepare(thread)                    @ src/server/threads.ts:189
+    new RemoteExecutionEnv(connection)         @ src/server/threads.ts:87
+      orbs.connection(orbId)                   @ src/server/orbs.ts:89
+</script>
+    </doc-calls>
+    <doc-claim at="src/server/threads.ts:83">
+      <p><b>threads.ts:83</b> · the env factory</p>
+      <doc-code src="moonlet/src/server/threads.ts" lines="76-96" hl="83-92">
+        <doc-pin line="86" title="Setup runs here, once per orb">The first tool call waits for it.</doc-pin>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The first use of an orb clones the repo and runs <code>.agents/setup</code>.</p>
+    <doc-code src="moonlet/src/server/threads.ts" lines="234-253" hl="240,246-251">
+      <doc-pin line="240" title="The git token goes to this command only"></doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The setup output goes into the conversation as one entry.</p>
+    <doc-code src="moonlet/src/server/threads.ts" lines="217-228" hl="221-225">
+      <doc-pin line="226" tone="info" title="A failed setup does not stop the thread">Amp does the same.</doc-pin>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 2 ═════ -->
+<doc-claim>
+  <p>Each tool call runs in the orb through the pi-env protocol.</p>
+  <doc-flow caption="Moonlet moves bytes. It does not read the pi-env frames.">
+<script type="text/plain">
+h = Harness / pi-durable
+e = ExecutionEnv / pi-env
+c = Connection / pi-env
+r = relay / moonlet
+s = splice / orbs.ts
+b = bootstrap / in the orb
+d = pi-env serve / in the orb
+| h | e | c |
+| . | s | r |
+| . | b | d |
+h -> e : tool call
+e -> c : frames
+c -> r : stdio
+r -> s : loopback ws
+s -> b : /orb/pipe
+b -> d : stdio
+</script>
+  </doc-flow>
+
+  <doc-claim>
+    <p>pi-env starts <code>moonlet relay</code> where it usually starts <code>ssh</code>.</p>
+    <doc-code src="moonlet/src/server/orbs.ts" lines="88-102" hl="93-96">
+      <doc-pin line="94" title="The orb starts before the relay">The 60 s start timeout of pi-env begins after this.</doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The server joins the relay socket to an orb pipe.</p>
+    <doc-calls title="Open a pipe" caption="Both sockets are outbound from their process. The server joins them.">
+<script type="text/plain">
+  upgrade /internal/relay/:orb                 @ src/server/main.ts:166
+    onOpen(relay)                              @ src/server/orbs.ts:306
+      #openPipe(relay)                         @ src/server/orbs.ts:369
+        ensureRunning(orbId)                   @ src/server/orbs.ts:378
+        send open-pipe on the control socket   @ src/server/orbs.ts:388
+
+  bootstrap gets open-pipe                     @ src/bootstrap.ts:103
+    spawn pi-env serve --token                 @ src/bootstrap.ts:34
+    dial /orb/pipe/:id                         @ src/bootstrap.ts:35
+
+  onOpen(pipe) sends the buffered bytes        @ src/server/orbs.ts:316
+  onMessage copies bytes in both directions    @ src/server/orbs.ts:340
+</script>
+    </doc-calls>
+    <doc-claim at="src/server/orbs.ts:369">
+      <p><b>orbs.ts:369</b> · #openPipe()</p>
+      <doc-code src="moonlet/src/server/orbs.ts" lines="369-389" hl="378,388">
+        <doc-pin line="374" tone="warn" title="30 s for the orb to dial back"></doc-pin>
+      </doc-code>
+    </doc-claim>
+    <doc-ask id="pipe-next">
+      <p>What must use the pipe next?</p>
+      <label><input type="radio" name="pipe-next" value="terminal" checked> A terminal <small>pi-env has openTerminal(); same pipe</small></label>
+      <label><input type="radio" name="pipe-next" value="portals"> Portals to orb ports <small>splice to a port, not to pi-env</small></label>
+      <label><input type="radio" name="pipe-next" value="none"> Nothing for now</label>
+    </doc-ask>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 3 ═════ -->
+<doc-claim>
+  <p>An idle orb pauses. The next tool call resumes it.</p>
+  <doc-machine name="orb" caption="The status column of the orbs table. moonlet threads shows it.">
+<script type="text/plain">
+machine orb initial none
+state none        # The thread exists. No machine yet.
+state spawning    # A spawn job runs. The server waits for hello.
+state running     # The bootstrap is connected.
+state pausing     # The pause job runs.
+state paused      # The disk and RAM are kept.
+state error       # The spawn failed. 15 s backoff.
+state deleting    # The delete job runs.
+state deleted final  # The machine is gone.
+
+| .     | error    | .       |
+| none  | spawning | running |
+| .     | paused   | pausing |
+| .     | deleting | deleted |
+
+none     -tool->  spawning : tool call
+spawning -hello-> running  : hello
+spawning -fail->  error    : job failed
+error    -retry-> spawning : after 15 s
+running  -idle->  pausing  : idle
+pausing  -done->  paused   : done
+paused   -tool->  spawning : tool call
+paused   -rm->    deleting : rm
+deleting -done->  deleted  : done
+</script>
+    <div data-state="spawning"><doc-mock frame="terminal" w="440"><template><span class="dim">$</span> moonlet threads
+t-a27b5e6c  <span class="y">spawning</span>  Run the tests</template></doc-mock></div>
+    <div data-state="running"><doc-mock frame="terminal" w="440"><template><span class="dim">$</span> moonlet threads
+t-a27b5e6c  <span class="g">running </span>  Run the tests</template></doc-mock></div>
+    <div data-state="paused"><doc-mock frame="terminal" w="440"><template><span class="dim">$</span> moonlet threads
+t-a27b5e6c  <span class="dim">paused  </span>  Run the tests</template></doc-mock></div>
+    <div data-state="error"><doc-mock frame="terminal" w="440"><template><span class="dim">$</span> moonlet threads
+t-a27b5e6c  <span class="r">error   </span>  Run the tests</template></doc-mock></div>
+  </doc-machine>
+
+  <doc-claim>
+    <p>The idle timer pauses an orb with no run and no real traffic.</p>
+    <doc-code src="moonlet/src/server/orbs.ts" lines="204-215" hl="207,210">
+      <doc-pin line="207" title="Never while a run is in progress"></doc-pin>
+    </doc-code>
+    <doc-ask id="idle-restart">
+      <p>After a server restart, what about runs that pi-durable resumes?</p>
+      <label><input type="radio" name="idle-restart" value="count" checked> Count them as busy <small>read the active runs at start</small></label>
+      <label><input type="radio" name="idle-restart" value="leave"> Leave it <small>the next tool call resumes the orb</small></label>
+    </doc-ask>
+  </doc-claim>
+
+  <doc-claim>
+    <p>Each spawn issues a new token. An old bootstrap cannot connect.</p>
+    <doc-code src="moonlet/src/server/orbs.ts" lines="138-155" hl="143-144">
+      <doc-pin line="144" title="Bound to the orb and the generation"></doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>pi-env pings do not keep an orb awake.</p>
+    <doc-code src="moonlet/src/server/orbs.ts" lines="340-345" hl="343">
+      <doc-pin line="343" title="A ping frame is 15 bytes"></doc-pin>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 4 ═════ -->
+<doc-claim>
+  <p>A dispatch program for Amp also makes moonlet orbs.</p>
+  <doc-schema id="dispatch-env" lang="ts" title="src/protocol.ts · DispatchEnv" src="moonlet/src/protocol.ts" lines="55-66" caption="The names match the Amp contract. The last two are moonlet additions."></doc-schema>
+  <doc-ask id="snapshots">
+    <p>How must moonlet get project snapshots?</p>
+    <label><input type="radio" name="snapshots" value="later" checked> Not now <small>setup runs on each new orb</small></label>
+    <label><input type="radio" name="snapshots" value="cp"> Copy a prepared VM <small>ssh exe.dev cp; counts against the 50-VM cap</small></label>
+    <label><input type="radio" name="snapshots" value="provider"> Use a provider with images <small>exe.dev stays for plain orbs</small></label>
+  </doc-ask>
+
+  <doc-claim>
+    <p>One orb runs its jobs one at a time, in order.</p>
+    <doc-code src="moonlet/src/server/store.ts" lines="143-157" hl="148-150">
+      <doc-pin line="149" title="No other job of this orb is claimed"></doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The spawn installs two checked binaries and starts the bootstrap.</p>
+    <doc-code src="moonlet/src/server/main.ts" lines="74-99" hl="89-90,97">
+      <doc-pin line="90" title="SHA-256 from the manifest"></doc-pin>
+      <doc-pin line="97" anchor="br" title="Detached, so the SSH session can end"></doc-pin>
+    </doc-code>
+    <doc-ask id="bootstrap-size">
+      <p>The bootstrap binary is 100 MB. What do we do?</p>
+      <label><input type="radio" name="bootstrap-size" value="rust" checked> Write it in Rust beside pi-env <small>most of the 26 s download goes</small></label>
+      <label><input type="radio" name="bootstrap-size" value="keep"> Keep the Bun binary</label>
+    </doc-ask>
+  </doc-claim>
+
+  <doc-claim>
+    <p><code>exe-dev.sh</code> creates or resumes a VM, then runs the bootstrap.</p>
+    <doc-code src="moonlet/dispatch/exe-dev.sh" lines="21-37" hl="28,31">
+      <doc-pin line="27" tone="warn" title="The default image name cannot go to --image"></doc-pin>
+      <doc-pin line="34" tone="info" title="A new VM can drop the first SSH connection"></doc-pin>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 5 ═════ -->
+<doc-claim>
+  <p>Orbs only dial out. A token works for one orb and one spawn.</p>
+  <doc-code src="moonlet/src/server/orbs.ts" lines="286-294" hl="292">
+    <doc-pin line="292" title="An older generation gets 401"></doc-pin>
+  </doc-code>
+  <doc-ask id="hosting">
+    <p>Where must the control plane run?</p>
+    <label><input type="radio" name="hosting" value="vm" checked> On an exe.dev VM <small>a fixed public URL; no tunnel</small></label>
+    <label><input type="radio" name="hosting" value="laptop"> On the laptop <small>Cloudflare quick tunnel, as now</small></label>
+  </doc-ask>
+
+  <doc-claim>
+    <p>The control socket carries no model keys and no conversation.</p>
+    <doc-schema id="messages" lang="ts" title="src/protocol.ts · control messages" src="moonlet/src/protocol.ts" lines="20-39" caption="These are all the messages. Tool data goes only through pi-env pipes."></doc-schema>
+  </doc-claim>
+
+  <doc-claim>
+    <p>Only a local relay with the relay key can open a pipe.</p>
+    <doc-code src="moonlet/src/server/main.ts" lines="166-176" hl="169-171">
+      <doc-pin line="169" tone="warn" title="A tunnel also connects from loopback">Its forward headers show it.</doc-pin>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ shared · not changing ═════ -->
+<doc-claim aux="shared">
+  <p>Shared: three tables hold the state of the control plane.</p>
+  <doc-schema id="tables" lang="sql" title="src/server/store.ts" src="moonlet/src/server/store.ts" lines="53-82" caption="The conversations are in a separate pi-durable database."></doc-schema>
+</doc-claim>
+
+<doc-claim aux="scope">
+  <p>Not in moonlet: snapshots, terminal, portals, Changes, Ship, teams.</p>
+  <ul>
+    <li>The Amp provider in <code>exe-provider/</code> is separate. Moonlet does not use it.</li>
+    <li>No <code>ORB_SNAPSHOT_ID</code>. Each new orb runs setup again.</li>
+    <li>No terminal, portals, desktop, Changes view or Ship.</li>
+    <li>One user. No workspaces.</li>
+  </ul>
+</doc-claim>
+
+</doc-plan>
+</main>
+</body>
+</html>

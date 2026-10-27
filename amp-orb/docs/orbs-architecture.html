@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbs: Architecture and an Open Implementation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,700;1,400;1,700&family=Roboto+Mono:wght@400;600;700&family=Fira+Code&display=swap" rel="stylesheet">
+<style>
+/* monograph — typeset like a short technical monograph.
+   Measurements taken from a US-Letter Google-Docs export:
+   body STIX Two Text 13pt/17.5pt justified, Roboto Mono 11pt inline,
+   0.65in margins, hairline-ruled listings, booktabs tables. */
+
+:root {
+  --serif: "STIX Two Text", "STIXGeneral", "Times New Roman", Times, serif;
+  --mono: "Roboto Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace;
+  --ink: #000;
+  --code-ink: #262626;
+  --muted: #595959;
+  --num: #737378;
+  --ln: #9e9ea3;
+  --kw: #0d3d8c;
+  --str: #802466;
+  --link: #1a4d99;
+  --error: #a32121;
+  --rule: #000;
+  --paper: #fff;
+  --desk: #f4f4f2;
+  --shadow: 0 1px 3px rgba(0,0,0,.12), 0 8px 30px rgba(0,0,0,.06);
+  --fs: 13pt;
+  --lh: 17.5pt;
+  --measure: 7.2in;
+  color-scheme: light;
+}
+
+/* dark: same ink hierarchy inverted; syntax colours lifted for contrast */
+html[data-theme="dark"] {
+  --ink: #e6e4df;
+  --code-ink: #d9d7d2;
+  --muted: #a3a09a;
+  --num: #8e8c88;
+  --ln: #6a6864;
+  --kw: #8ab4f8;
+  --str: #e39ccf;
+  --link: #8ab4f8;
+  --error: #ff8f8f;
+  --rule: #cfcdc8;
+  --paper: #1b1b1d;
+  --desk: #0f0f10;
+  --shadow: 0 1px 3px rgba(0,0,0,.6), 0 8px 30px rgba(0,0,0,.4);
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) {
+    --ink: #e6e4df;
+    --code-ink: #d9d7d2;
+    --muted: #a3a09a;
+    --num: #8e8c88;
+    --ln: #6a6864;
+    --kw: #8ab4f8;
+    --str: #e39ccf;
+    --link: #8ab4f8;
+    --error: #ff8f8f;
+    --rule: #cfcdc8;
+    --paper: #1b1b1d;
+    --desk: #0f0f10;
+    --shadow: 0 1px 3px rgba(0,0,0,.6), 0 8px 30px rgba(0,0,0,.4);
+    color-scheme: dark;
+  }
+}
+html[data-theme="dark"] figure img { filter: invert(.92) hue-rotate(180deg); }
+@media (prefers-color-scheme: dark) { html:not([data-theme]) figure img { filter: invert(.92) hue-rotate(180deg); } }
+
+html { background: var(--desk); }
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: var(--fs);
+  line-height: var(--lh);
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+.doc {
+  background: var(--paper);
+  max-width: var(--measure);
+  margin: 0.5in auto;
+  padding: 0.55in 0.65in 0.9in;
+  box-shadow: var(--shadow);
+}
+
+/* ---- theme toggle (screen only) -------------------------------------- */
+/* A moon in light mode (switch to dark), a sun in dark mode (switch to light). */
+.theme-toggle {
+  position: fixed; top: 12px; right: 14px;
+  color: var(--muted); background: none; border: 0; border-radius: 8px;
+  padding: 6px; line-height: 0; cursor: pointer; opacity: .75;
+}
+.theme-toggle:hover { opacity: 1; color: var(--ink); }
+.theme-toggle:focus-visible { outline: 1px solid var(--rule); outline-offset: 2px; }
+.theme-toggle svg { width: 20px; height: 20px; display: block; }
+.theme-toggle .icon-sun { display: none; }
+html[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+html[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) .theme-toggle .icon-sun { display: block; }
+  html:not([data-theme]) .theme-toggle .icon-moon { display: none; }
+}
+
+/* ---- title block ---------------------------------------------------- */
+.titleblock { text-align: center; margin: 0 0 22pt; }
+.titleblock p { text-align: center; }
+.title { font-size: 23pt; font-weight: 400; line-height: 1.2; margin: 0 0 8pt; letter-spacing: -0.005em; }
+.subtitle { font-size: 14pt; font-style: italic; margin: 0 0 6pt; }
+.byline { font-size: 12.5pt; color: var(--muted); margin: 0; }
+
+/* ---- contents ------------------------------------------------------- */
+.toc {
+  column-count: 3;
+  column-gap: 18pt;
+  margin: 0 0 20pt 6pt;
+  font-size: 13pt;
+  line-height: 17.5pt;
+}
+.toc-group { break-inside: avoid; margin-bottom: 6pt; }
+.toc a { color: inherit; text-decoration: none; display: block; }
+.toc .num { color: var(--num); display: inline-block; min-width: 1.25em; margin-right: 0.35em; text-align: right; }
+.toc-h { font-weight: 700; }
+.toc-h .num { min-width: 0.7em; }
+.toc-s { padding-left: 1.05em; text-indent: -1.95em; margin-left: 1.95em; }
+.toc-s .num { min-width: 1.6em; }
+
+/* ---- headings ------------------------------------------------------- */
+h2, h3, h4 { font-weight: 700; line-height: 1.25; page-break-after: avoid; }
+h2 { font-size: 15pt; margin: 26pt 0 10pt; }
+h3 { font-size: 13.5pt; margin: 18pt 0 8pt; }
+h4 { font-size: 13pt; margin: 14pt 0 6pt; font-style: italic; font-weight: 400; }
+h2 .num, h3 .num, h4 .num { margin-right: 0; }
+
+/* ---- text ----------------------------------------------------------- */
+p { margin: 0 0 8pt; text-align: justify; hyphens: auto; -webkit-hyphens: auto; }
+p.abstract { font-size: 12pt; margin: 0 24pt 16pt; }
+em { font-style: italic; }
+strong { font-weight: 700; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a.secref { color: var(--link); }
+sup.fn { font-size: 0.7em; line-height: 0; }
+sup.fn a { color: var(--link); }
+hr { border: 0; border-top: 1pt solid var(--rule); margin: 18pt 0; }
+ul, ol { margin: 0 0 8pt; padding-left: 1.6em; }
+li { margin: 0 0 2pt; text-align: justify; }
+blockquote { margin: 8pt 22pt 12pt; font-style: italic; }
+blockquote code { font-style: normal; }
+.math-inline { white-space: nowrap; }
+.math-display {
+  margin: 10pt 0 14pt;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+  page-break-inside: avoid;
+}
+.math-display > .katex-display { margin: 0; }
+.math-error {
+  color: var(--error);
+  font: 0.85em/1.4 var(--mono);
+  white-space: pre-wrap;
+  border-bottom: 1px dotted currentColor;
+}
+.math-display.math-error::after {
+  content: "source line " attr(data-source-line);
+  display: block;
+  margin-top: 3pt;
+  color: var(--muted);
+  font: 9pt/12pt var(--mono);
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 11pt;
+  color: var(--code-ink);
+  letter-spacing: -0.01em;
+  hyphens: none; -webkit-hyphens: none;
+}
+p code, li code, td code, th code, h2 code, h3 code { font-size: 0.85em; }
+
+/* ---- listings ------------------------------------------------------- */
+figure { margin: 0; }
+figure.listing { margin: 10pt 0 12pt; page-break-inside: avoid; }
+figure.listing pre {
+  margin: 0;
+  padding: 6pt 6pt 7pt;
+  border-top: 1pt solid var(--rule);
+  border-bottom: 1pt solid var(--rule);
+  font-family: var(--mono);
+  font-size: 10pt;
+  line-height: 15.5pt;
+  color: var(--ink);
+  white-space: pre;
+  overflow-x: auto;
+  tab-size: 2;
+}
+figure.listing pre code { font-size: inherit; color: inherit; font-family: inherit; letter-spacing: 0; }
+pre.numbered code { display: grid; grid-template-columns: max-content 1fr; column-gap: 12pt; counter-reset: line; }
+pre.numbered .ln::before { counter-increment: line; content: counter(line); }
+pre.numbered .ln { color: var(--ln); text-align: right; user-select: none; }
+pre.numbered .cl { white-space: pre; }
+pre .k { color: var(--kw); font-weight: 600; }
+pre .j { color: var(--kw); }
+pre .s { color: var(--str); }
+pre .c { color: var(--ln); }
+pre .n { color: var(--ink); }
+figure.listing figcaption,
+figure.fig figcaption {
+  font-size: 11pt;
+  line-height: 14pt;
+  margin-top: 5pt;
+  text-align: left;
+}
+figcaption .label { font-variant-numeric: tabular-nums; }
+
+/* ---- figures -------------------------------------------------------- */
+figure.fig { margin: 12pt 0 14pt; text-align: center; page-break-inside: avoid; }
+figure.fig img { max-width: 100%; height: auto; display: block; margin: 0 auto 6pt; }
+figure.fig figcaption { text-align: left; }
+p img { max-width: 100%; }
+
+/* ---- tables (booktabs) --------------------------------------------- */
+table.tab {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8pt 0 16pt;
+  border-top: 2pt solid var(--rule);
+  border-bottom: 2pt solid var(--rule);
+  font-size: 12pt;
+  line-height: 16pt;
+}
+table.tab tr { page-break-inside: avoid; }
+table.tab thead { display: table-header-group; }
+table.tab th {
+  font-weight: 700;
+  text-align: left;
+  padding: 7pt 8pt 6pt 2pt;
+  border-bottom: 1pt solid var(--rule);
+  vertical-align: bottom;
+}
+table.tab td { padding: 5pt 8pt 5pt 2pt; vertical-align: top; }
+table.tab tbody tr:first-child td { padding-top: 9pt; }
+table.tab tbody tr:last-child td { padding-bottom: 9pt; }
+table.tab td:first-child, table.tab th:first-child { width: 22%; padding-right: 16pt; }
+table.tab td.term { width: 1%; white-space: nowrap; padding-right: 22pt; }
+table.tab code { font-size: 10.5pt; }
+table.tab.headerless td:first-child { font-family: var(--mono); font-size: 10.5pt; color: var(--code-ink); }
+table.tab.headerless td:first-child em { font-family: var(--serif); font-size: 12pt; }
+
+/* ---- footnotes ------------------------------------------------------ */
+.footnotes { margin-top: 24pt; font-size: 11pt; line-height: 14pt; }
+.footnotes hr { width: 30%; margin: 0 0 8pt; }
+.footnotes ol { padding-left: 1.4em; }
+.footnotes .backref { margin-left: 0.3em; }
+
+#source-md { display: none; }
+
+/* ---- print ---------------------------------------------------------- */
+@page { size: letter; margin: 0.65in 0.65in 0.75in; }
+@media print {
+  html, html[data-theme="dark"] {
+    --ink: #000; --code-ink: #262626; --muted: #595959; --num: #737378; --ln: #9e9ea3;
+    --kw: #0d3d8c; --str: #802466; --link: #1a4d99; --error: #a32121; --rule: #000; --paper: #fff; --desk: #fff;
+    background: #fff; color-scheme: light;
+  }
+  html[data-theme="dark"] figure img, html:not([data-theme]) figure img { filter: none; }
+  .theme-toggle { display: none; }
+  .doc { max-width: none; margin: 0; padding: 0; box-shadow: none; }
+  a { color: var(--link); }
+  figure.listing pre { overflow: visible; white-space: pre-wrap; }
+  .math-display { overflow: visible; }
+}
+
+@media (max-width: 720px) {
+  .doc { margin: 0; padding: 24px 18px 40px; }
+  .toc { column-count: 1; }
+  p { text-align: left; }
+}
+
+</style>
+</head>
+<body>
+<button class="theme-toggle" type="button" aria-label="Switch to dark theme" title="Switch to dark theme"><svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg><svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></button>
+<main class="doc">
+<header class="titleblock">
+<h1 class="title">Orbs: Architecture and an Open Implementation</h1>
+<p class="subtitle">How Amp’s orbs work inside, how we self-hosted them on exe.dev, and how moonlet rebuilds them on pi-durable</p>
+<p class="byline">swair · October 2026</p>
+</header>
+<nav class="toc" aria-label="Contents">
+<div class="toc-group"><a class="toc-h" href="#the-idea"><span class="num">1</span>The Idea</a>
+<a class="toc-s" href="#vocabulary"><span class="num">1.1</span>Vocabulary</a>
+</div>
+<div class="toc-group"><a class="toc-h" href="#amps-architecture"><span class="num">2</span>Amp’s Architecture</a>
+<a class="toc-s" href="#provider-and-jobs"><span class="num">2.1</span>Provider and Jobs</a>
+<a class="toc-s" href="#bootstrap"><span class="num">2.2</span>Bootstrap</a>
+<a class="toc-s" href="#the-executor"><span class="num">2.3</span>The Executor</a>
+<a class="toc-s" href="#setup"><span class="num">2.4</span>Setup</a>
+<a class="toc-s" href="#lifecycle"><span class="num">2.5</span>Lifecycle</a>
+</div>
+<div class="toc-group"><a class="toc-h" href="#what-orbs-support"><span class="num">3</span>What Orbs Support</a>
+</div>
+<div class="toc-group"><a class="toc-h" href="#self-hosting-on-exedev"><span class="num">4</span>Self-Hosting on exe.dev</a>
+</div>
+<div class="toc-group"><a class="toc-h" href="#moonlet"><span class="num">5</span>Moonlet</a>
+<a class="toc-s" href="#control-plane"><span class="num">5.1</span>Control Plane</a>
+<a class="toc-s" href="#the-pipe"><span class="num">5.2</span>The Pipe</a>
+<a class="toc-s" href="#orb-lifecycle"><span class="num">5.3</span>Orb Lifecycle</a>
+<a class="toc-s" href="#setup"><span class="num">5.4</span>Setup</a>
+<a class="toc-s" href="#dispatch"><span class="num">5.5</span>Dispatch</a>
+<a class="toc-s" href="#security"><span class="num">5.6</span>Security</a>
+</div>
+<div class="toc-group"><a class="toc-h" href="#results"><span class="num">6</span>Results</a>
+</div>
+<div class="toc-group"><a class="toc-h" href="#open-questions"><span class="num">7</span>Open Questions</a>
+</div>
+</nav>
+<p class="abstract">An orb is a remote machine that belongs to one agent thread. The agent works there instead of on the user’s laptop; the machine sleeps when the thread goes idle and wakes when the next message arrives. This paper describes Amp’s implementation as observed from inside a live self-hosted orb, records what it took to run Amp’s orbs on exe.dev, and presents moonlet, an open implementation in which a pi-durable Harness replaces Amp’s thread actor and pi-env’s daemon replaces Amp’s in-orb executor, while the machine-provisioning contract stays byte-for-byte compatible with Amp’s.</p>
+<h2 id="the-idea"><span class="num">1.</span> The Idea</h2>
+<p>An orb separates three things that a local coding agent keeps in one process: the conversation, the model calls, and the machine on which tools run. The conversation and the model calls live on a server. The machine is disposable compute that can be paused for weeks at no cost and resumed in seconds with its files, and ideally its processes, intact. The agent therefore keeps working when the laptop is closed, many agents can run at once, and each has a whole machine to install dependencies, start services and prove its changes.</p>
+<p>Self-hosting changes who owns the machine but not the shape of the system. Amp states the requirement precisely: the infrastructure must start machines quickly, put them to sleep and resume them equally fast, keep them for a long time, and scale to zero so sleeping machines cost nothing. Everything else is protocol.</p>
+<h3 id="vocabulary"><span class="num">1.1</span> Vocabulary</h3>
+<table class="tab">
+<thead><tr><th style="text-align:left">term</th><th style="text-align:left">meaning</th></tr></thead>
+<tbody>
+<tr><td style="text-align:left">thread</td><td style="text-align:left">One agent conversation. Each thread owns at most one orb.</td></tr>
+<tr><td style="text-align:left">orb</td><td style="text-align:left">The machine assigned to a thread. Named <code>ORB_ID</code>, e.g. <code>amp-&lt;thread-uuid&gt;</code> or <code>moonlet-&lt;id&gt;</code>.</td></tr>
+<tr><td style="text-align:left">control plane</td><td style="text-align:left">The server that stores threads, calls the model and decides when orbs run. Amp’s is ampcode.com; moonlet’s is <code>moonlet server</code>.</td></tr>
+<tr><td style="text-align:left">provider</td><td style="text-align:left">A process inside the user’s network that turns lifecycle jobs into machine operations: <code>amp orb provider</code> or <code>moonlet provider</code>.</td></tr>
+<tr><td style="text-align:left">dispatch program</td><td style="text-align:left">A user-supplied executable the provider runs once per job, configured only through <code>ORB_*</code> environment variables (<a class="secref" href="#provider-and-jobs">§2.1</a>).</td></tr>
+<tr><td style="text-align:left">job</td><td style="text-align:left">One lifecycle operation: <code>spawn</code> (create or resume), <code>pause</code>, or <code>delete</code>.</td></tr>
+<tr><td style="text-align:left">bootstrap</td><td style="text-align:left">The first process started inside an orb. It dials the control plane with a per-spawn token.</td></tr>
+<tr><td style="text-align:left">executor</td><td style="text-align:left">The in-orb component that actually runs tool calls. In Amp, <code>amp --headless</code>; in moonlet, <code>pi-env serve</code>.</td></tr>
+<tr><td style="text-align:left">lease</td><td style="text-align:left">Amp’s claim on one tool call by one executor, with a deadline, re-issued after a reconnect.</td></tr>
+<tr><td style="text-align:left">generation</td><td style="text-align:left">moonlet’s spawn counter for an orb. Tokens carry it; a token from an older generation is refused (<a class="secref" href="#orb-lifecycle">§5.3</a>).</td></tr>
+</tbody></table>
+<h2 id="amps-architecture"><span class="num">2.</span> Amp’s Architecture</h2>
+<p>The decisive design choice is that the agent loop never runs in the orb. Every Amp thread is a Rivet actor on Amp’s servers, keyed by the thread ID. The actor holds the transcript, calls the model, schedules tools, drives orb setup and enqueues lifecycle jobs. The orb is a remote executor: it registers tools, accepts leases, runs them and returns results. It holds no model keys and no Amp API key. Pausing an orb therefore never loses agent state, because there is none in the orb to lose.</p>
+<figure class="listing" id="listing-1"><pre><code class="lang-text"> ampcode.com                                user's network
+┌────────────────────────────┐  HTTPS poll  ┌────────────────────────────┐
+│ thread actor (Rivet actor, │◄─────────────│ amp orb provider           │
+│   key = thread id)         │/api/internal │   runs dispatch.sh per job │
+│ agent loop + inference     │              └─────────────┬──────────────┘
+│ tool leases, setup driver  │                            │ spawn/pause/delete
+│ lifecycle job queue        │              ┌─────────────▼──────────────┐
+│                            │◄──── WSS ────│ orb: amp orb bootstrap     │
+│                            │◄──── WSS ────│      amp --headless        │
+│                            │◄─── tunnel ──│      terminal, desktop     │
+└────────────────────────────┘              └────────────────────────────┘</code></pre><figcaption><span class="label">Listing 1:</span> Amp’s components. Every arrow into ampcode.com is an outbound connection from the user’s network.</figcaption></figure>
+<p>The evidence for this section comes from the processes, files and logs of a live orb on exe.dev, from the CLI binary’s string table (its JavaScript is compiled to Bun bytecode), and from pointing <code>amp orb provider</code> and <code>amp orb bootstrap</code> at fake servers whose deliberately wrong replies made the CLI print the field names it validates. The full report is <code>docs/amp-orb-internals.md</code>.</p>
+<h3 id="provider-and-jobs"><span class="num">2.1</span> Provider and Jobs</h3>
+<p><code>amp orb provider</code> speaks plain HTTPS JSON-RPC: <code>POST /api/internal?&lt;method&gt;</code> with body <code>{"method", "params"}</code> and the provider token <code>aop_live_…</code> as a bearer token. It long-polls for jobs, runs the dispatch program, streams the program’s output back as the thread’s setup log, and reports completion. It handles several jobs at once and updates itself, draining jobs before it restarts.</p>
+<table class="tab">
+<thead><tr><th style="text-align:left">method</th><th style="text-align:left">purpose</th></tr></thead>
+<tbody>
+<tr><td style="text-align:left"><code>orbSpawnerClaimJob</code></td><td style="text-align:left">Long poll. Returns <code>{claim: null}</code> or a claim with <code>id</code>, <code>attempt</code>, <code>timeoutMs</code>, <code>claimDeadlineAt</code> and the <code>job</code>.</td></tr>
+<tr><td style="text-align:left"><code>orbSpawnerHeartbeatJob</code></td><td style="text-align:left">Extends the claim while the dispatch program runs.</td></tr>
+<tr><td style="text-align:left"><code>orbSpawnerCompleteJob</code></td><td style="text-align:left">Reports the job finished.</td></tr>
+<tr><td style="text-align:left"><code>orbSpawnerReleaseClaim</code></td><td style="text-align:left">Gives claims back on shutdown.</td></tr>
+<tr><td style="text-align:left"><code>orbSpawnerWaitLogRead</code>, <code>orbSpawnerSendLogChunk</code></td><td style="text-align:left">Stream dispatch output to a thread that is watching its setup log.</td></tr>
+</tbody></table>
+<p>The job itself is small: <code>op</code>, a <code>sandboxId</code> of the form <code>orb-provider:&lt;config&gt;:&lt;orbId&gt;</code>, a per-spawn <code>token</code>, an optional <code>snapshotId</code>, and an optional server URL. The provider translates it into the environment of the dispatch program, which is the entire contract between Amp and the user’s infrastructure:</p>
+<table class="tab">
+<thead><tr><th style="text-align:left">variable</th><th style="text-align:left">value</th></tr></thead>
+<tbody>
+<tr><td style="text-align:left"><code>ORB_OPERATION</code></td><td style="text-align:left"><code>spawn</code>, <code>pause</code> or <code>delete</code>.</td></tr>
+<tr><td style="text-align:left"><code>ORB_ID</code></td><td style="text-align:left">Machine name; repeated jobs for one orb carry the same ID.</td></tr>
+<tr><td style="text-align:left"><code>ORB_IMAGE</code></td><td style="text-align:left">Image to boot; the provider’s override or Amp’s public orb image.</td></tr>
+<tr><td style="text-align:left"><code>ORB_SNAPSHOT_ID</code></td><td style="text-align:left">Project snapshot to boot from (spawn) or to save (pause), <a class="secref" href="#lifecycle">§2.5</a>.</td></tr>
+<tr><td style="text-align:left"><code>ORB_TOKEN</code></td><td style="text-align:left">Spawn only. Short-lived credential for this spawn’s bootstrap.</td></tr>
+<tr><td style="text-align:left"><code>AMP_URL</code></td><td style="text-align:left">Spawn only, when the server is not ampcode.com.</td></tr>
+</tbody></table>
+<p>A spawn must make the machine run and start <code>amp orb bootstrap</code> inside it as the image’s default user, detached. A pause stops the machine and keeps its disk. A delete removes it. Every operation must be safe to repeat and finish within five minutes.</p>
+<p>Failure handling is weak at this layer. A dispatch program that exits non-zero still shows <code>✓ done</code> in the provider’s output; its stderr becomes the thread’s error line; and Amp re-issues the spawn only after two to three minutes. A spawn that exits zero but whose bootstrap never connects is indistinguishable from a slow one until Amp gives up.</p>
+<h3 id="bootstrap"><span class="num">2.2</span> Bootstrap</h3>
+<p>The bootstrap exchanges its token for a location: <code>GET /api/orbs/bootstrap</code> with <code>Authorization: Bearer $ORB_TOKEN</code> returns <code>{threadId, sandboxId, rivetEndpoint, expiresAt}</code>. It then opens a WebSocket to the thread actor through Rivet’s actor gateway:</p>
+<figure class="listing"><pre><code class="lang-text">GET {rivetEndpoint}/gateway/threadActor/websocket/?rvt-namespace=default&amp;rvt-method=get&amp;rvt-key=&lt;threadId&gt;
+Sec-WebSocket-Protocol: rivet, rivet_encoding.bare, rivet_conn_params.{<span class="s">"orbToken"</span>:…,<span class="s">"transport"</span>:<span class="s">"json-rpc"</span>}</code></pre></figure>
+<p>In production <code>rivetEndpoint</code> is a path under ampcode.com carrying a Rivet publishable key. Frames use Rivet’s BARE envelope with JSON-RPC inside. Once connected, the bootstrap announces the sandbox and serves a small remote-exec and file API to the actor: <code>run</code>, <code>write_files</code>, <code>read_file</code>, <code>file_exists</code>, <code>remove_file</code>, <code>append_file</code>, <code>make_directory</code> and <code>truncate</code>. In the observed session the actor issued thirty such requests in five seconds to set the orb up (<a class="secref" href="#setup">§2.4</a>). A PID file keeps one bootstrap per machine, so on resume the dispatcher must kill the previous one or the new token is never used.</p>
+<h3 id="the-executor"><span class="num">2.3</span> The Executor</h3>
+<p>Tools do not run in the bootstrap. The actor uses the bootstrap to write <code>~/.env</code> and a supervisor script, and the supervisor loops forever starting <code>amp --headless=&lt;thread&gt;</code>. That process is a second Rivet client of the same actor. It authenticates with thread identity rather than the spawn token, which is why <code>ORB_TOKEN</code> never appears in <code>~/.env</code>.</p>
+<figure class="listing" id="listing-2"><pre><code class="lang-text">actor → orb   tool_lease               {toolCallId, toolName, …args}
+orb   → actor executor_tool_lease_ack  {toolCallId}
+orb   → actor tool_progress            (streamed snapshots)
+orb   → actor executor_tool_result     {run: {status, result: {output, exitCode}}, workspaceChanged, timings}
+actor → orb   executor_tool_result_ack {toolCallId}</code></pre><figcaption><span class="label">Listing 2:</span> One tool call between the thread actor and the headless executor.</figcaption></figure>
+<p>The handshake before the first lease sends <code>executor_connect</code> with capability tags, an environment snapshot (repository, platform, working directory), the guidance files and skills found in the workspace, and <code>executor_tools_register</code> with twenty-two tool names: <code>shell_command</code> and its async variants, <code>Read</code>, <code>edit_file</code>, <code>apply_patch</code>, <code>create_file</code>, <code>glob</code>, <code>Grep</code>, <code>web_search</code>, thread file transfer, and plugin and skill reloads. The model sees more tools than the orb registers because some run on the server. The actor also runs git directly through <code>executor_git_command</code> and <code>executor_git_diff_snapshot</code>, which is what fills the Changes view. Because a lease has a deadline, a call whose executor disappears is re-leased after reconnect (<code>client_resume</code>).</p>
+<p>A third process, the plugin runtime, is a Bun child speaking stdio JSON-RPC that contributes tools, skills and agent modes from installed plugins.</p>
+<h3 id="setup"><span class="num">2.4</span> Setup</h3>
+<p>Setup is driven entirely from the actor through the bootstrap’s <code>run</code> and <code>write_files</code>:</p>
+<table class="tab">
+<thead><tr><th style="text-align:left">step</th><th style="text-align:left">what happens</th></tr></thead>
+<tbody>
+<tr><td style="text-align:left">Git</td><td style="text-align:left">Clears old credential helpers; installs a helper that serves a bootstrap GitHub token for the clone, then <code>amp git-credential-helper</code> for short-lived tokens; rewrites SSH remotes to HTTPS; configures SSH commit signing through <code>amp-sign-commit</code>; installs a <code>gh</code> wrapper.</td></tr>
+<tr><td style="text-align:left">Clone</td><td style="text-align:left">Clones the project into <code>/home/user/workspace/repo</code>, unless the provider disables cloning for images that bring their own checkout.</td></tr>
+<tr><td style="text-align:left">Runtime</td><td style="text-align:left">Writes <code>~/.env</code> and the headless supervisor; waits for <code>executor_connected</code>.</td></tr>
+<tr><td style="text-align:left">Hooks</td><td style="text-align:left">Runs the project’s pre-setup script and <code>.agents/setup</code> (or <code>.agents/resume</code> on resume), logging through <code>amp orb redact-output</code>. A successful setup is recorded and makes a project snapshot possible.</td></tr>
+<tr><td style="text-align:left">Services</td><td style="text-align:left">Reconciles <code>.amp/services.yaml</code> into supervised processes, each with a portal URL.</td></tr>
+</tbody></table>
+<h3 id="lifecycle"><span class="num">2.5</span> Lifecycle</h3>
+<p>Idle detection happens on the server: the actor knows when the agent has finished and how many observers are attached, and sends <code>pause</code> a few minutes after the thread goes quiet. The next message sends <code>spawn</code> again with a fresh token. On resume, a new bootstrap starts, the <code>resume</code> hook runs, the executor reconnects with <code>resumeBootstrap</code>, and unfinished leases are re-issued.</p>
+<p>A project snapshot is a paused orb with the repository cloned and <code>.agents/setup</code> already run. Amp saves one by sending <code>pause</code> with <code>ORB_SNAPSHOT_ID</code> followed by <code>spawn</code> for the same orb; the dispatcher stores a copy of the disk under that ID on pause. Later threads of the same project carry the ID on spawn, and a dispatcher that has the copy boots from it and skips setup. A dispatcher that ignores the variable merely runs setup every time.</p>
+<h2 id="what-orbs-support"><span class="num">3.</span> What Orbs Support</h2>
+<p>The machine is the agent’s, but several features let a human share it. All of them reach the orb through outbound connections; nothing in the orb listens on a public interface.</p>
+<table class="tab">
+<thead><tr><th style="text-align:left">feature</th><th style="text-align:left">mechanism</th></tr></thead>
+<tbody>
+<tr><td style="text-align:left">Changes view, Ship</td><td style="text-align:left">The actor runs <code>git status</code> and diff snapshots through the executor; pushes use the git credential helper (<a class="secref" href="#setup">§2.4</a>).</td></tr>
+<tr><td style="text-align:left">Terminal</td><td style="text-align:left">A shared tmux session behind a loopback terminal server, reached through Amp Tunnel (<code>tunnel.ampcode.com</code>). The agent and the human see the same session.</td></tr>
+<tr><td style="text-align:left">Portals</td><td style="text-align:left">Services from <code>.amp/services.yaml</code> or <code>amp orb service start</code>, supervised and restarted after resume, each exposed at a URL that only signed-in users with access to the thread can open.</td></tr>
+<tr><td style="text-align:left">Desktop</td><td style="text-align:left">A Wayland desktop with Chrome; <code>amp orb desktop ensure</code> prints a DevTools endpoint for browser automation.</td></tr>
+<tr><td style="text-align:left">Files</td><td style="text-align:left">Thread attachments, drag-and-drop into the file pane or terminal (up to 512 MB), and <code>amp sync</code> to mirror changes to a local checkout.</td></tr>
+<tr><td style="text-align:left">Amp Net</td><td style="text-align:left">Routes an orb’s outbound traffic through an exit node on the user’s own machine.</td></tr>
+<tr><td style="text-align:left">Secrets</td><td style="text-align:left">Workspace and project secrets written into <code>~/.env</code>, with output redaction by value.</td></tr>
+<tr><td style="text-align:left">Snapshots</td><td style="text-align:left">Project snapshots skip setup for new threads (<a class="secref" href="#lifecycle">§2.5</a>).</td></tr>
+<tr><td style="text-align:left">Sizes</td><td style="text-align:left">Hosted orbs come in sizes from <code>a1.tiny</code> (1 CPU, 2 GB) to <code>a1.xxlarge</code>; self-hosted sizes are whatever the dispatch program creates.</td></tr>
+</tbody></table>
+<h2 id="self-hosting-on-exedev"><span class="num">4.</span> Self-Hosting on exe.dev</h2>
+<p>exe.dev provides VMs that start in seconds, pause with their RAM snapshotted to disk, and resume in a few seconds, which meets Amp’s requirements directly. The CLI is <code>ssh exe.dev &lt;command&gt;</code>; each VM is reachable as <code>ssh &lt;name&gt;.exe.xyz</code>.</p>
+<p>The setup required an Amp workspace (individual accounts have none until one is created; the workspace <code>swairshah</code> now holds the account’s credits and shared threads), a custom orb provider named <code>exe-dev</code> registered under Settings → Orbs, and the provider process running locally with <code>exe-provider/dispatch.sh</code>. A thread selects the provider under Orb → Self-Hosted.</p>
+<figure class="listing" id="listing-3"><pre class="numbered"><code class="lang-sh"><span class="ln"></span><span class="cl"><span class="k">if</span> [[ -z <span class="s">"$status"</span> ]]; <span class="k">then</span></span>
+<span class="ln"></span><span class="cl">	ssh exe.dev new --name=<span class="s">"$ORB_ID"</span> --image=<span class="s">"$ORB_IMAGE"</span> --cpu=<span class="n">2</span> --memory=8G --no-email</span>
+<span class="ln"></span><span class="cl">elif [[ <span class="s">"$status"</span> == paused ]]; <span class="k">then</span></span>
+<span class="ln"></span><span class="cl">	ssh exe.dev resume <span class="s">"$ORB_ID"</span></span>
+<span class="ln"></span><span class="cl"><span class="k">fi</span></span>
+<span class="ln"></span><span class="cl"><span class="k">for</span> _ <span class="k">in</span> $(seq <span class="n">1</span> <span class="n">30</span>); <span class="k">do</span> ssh <span class="s">"$ORB_ID.exe.xyz"</span> true &amp;&amp; break; sleep <span class="n">2</span>; <span class="k">done</span></span>
+<span class="ln"></span><span class="cl">{ printf <span class="s">'export ORB_TOKEN=%q\n'</span> <span class="s">"$ORB_TOKEN"</span>; cat &lt;&lt;<span class="s">'EOF'</span></span>
+<span class="ln"></span><span class="cl">[ -e /dev/fd ] || ln -s /proc/self/fd /dev/fd</span>
+<span class="ln"></span><span class="cl">sudo -u user --preserve-env=ORB_TOKEN,AMP_URL bash -lc \</span>
+<span class="ln"></span><span class="cl">	<span class="s">'cd; setsid -f amp orb bootstrap &lt;/dev/null &gt;&gt;.amp-bootstrap.log 2&gt;&amp;1'</span></span>
+<span class="ln"></span><span class="cl">EOF</span>
+<span class="ln"></span><span class="cl">} | ssh <span class="s">"$ORB_ID.exe.xyz"</span> bash -s</span>
+</code></pre><figcaption><span class="label">Listing 3:</span> The spawn branch of the exe.dev dispatch program, condensed.</figcaption></figure>
+<p>The first two spawns failed, and the third worked. Each failure taught something about the platform:</p>
+<table class="tab">
+<thead><tr><th style="text-align:left">problem</th><th style="text-align:left">consequence</th><th style="text-align:left">fix</th></tr></thead>
+<tbody>
+<tr><td style="text-align:left"><code>ssh exe.dev new</code> splits its arguments on spaces.</td><td style="text-align:left"><code>--comment="Amp orb"</code> became a stray positional argument and creation failed.</td><td style="text-align:left">No flag value may contain a space.</td></tr>
+<tr><td style="text-align:left">A fresh VM drops the first SSH session while it boots.</td><td style="text-align:left">The VM existed but the bootstrap never started; Amp waited about three minutes.</td><td style="text-align:left">Retry <code>ssh … true</code> until it succeeds; start the bootstrap with <code>setsid -f</code>.</td></tr>
+<tr><td style="text-align:left">exe.dev guests have no <code>/dev/fd</code>.</td><td style="text-align:left">Amp’s setup hook redirects through <code>&gt;(redact_output)</code> and dies, so setup is never cached and no snapshot is ever taken.</td><td style="text-align:left">Link <code>/proc/self/fd</code> to <code>/dev/fd</code> before the bootstrap starts.</td></tr>
+<tr><td style="text-align:left">The default image is listed as <code>boldsoftware/exeuntu</code> but is not pullable by that name.</td><td style="text-align:left">Creation fails when it is passed to <code>--image</code>.</td><td style="text-align:left">Omit <code>--image</code> for the default image.</td></tr>
+<tr><td style="text-align:left">The Individual plan allows 50 VMs and 4 vCPUs and 16 GB in total.</td><td style="text-align:left">Orb creation fails at the cap; paused orbs still count.</td><td style="text-align:left">Delete finished orbs; size orbs small.</td></tr>
+</tbody></table>
+<p>Creating a VM from Amp’s orb image took 48 seconds, most of it pulling the image. Once running, the Amp smoke-test thread executed in a Debian 12 orb with two CPUs and 7.7 GB of memory. Amp had not sent a pause after ninety minutes with a browser tab still open on the thread, consistent with observer-based idle detection (<a class="secref" href="#lifecycle">§2.5</a>).</p>
+<h2 id="moonlet"><span class="num">5.</span> Moonlet</h2>
+<p>moonlet keeps Amp’s shape and replaces every proprietary component. The control plane is a pi-durable Harness; the executor is pi-env’s daemon; the provisioning contract is unchanged, so the exe.dev dispatch program above drives both systems.</p>
+<table class="tab">
+<thead><tr><th style="text-align:left">Amp</th><th style="text-align:left">moonlet</th></tr></thead>
+<tbody>
+<tr><td style="text-align:left">Rivet thread actor: transcript, inference, leases</td><td style="text-align:left">pi-durable <code>Harness</code> over SQLite; one conversation per thread; tool calls are durable tasks</td></tr>
+<tr><td style="text-align:left"><code>/api/internal?orbSpawner*</code></td><td style="text-align:left"><code>POST /api/provider/claim</code> (long poll) and <code>POST /api/provider/jobs/:id</code></td></tr>
+<tr><td style="text-align:left"><code>amp orb provider</code></td><td style="text-align:left"><code>moonlet provider</code>, or the same loop inside the server with <code>--dispatch</code></td></tr>
+<tr><td style="text-align:left"><code>amp orb bootstrap</code> + Rivet WebSocket</td><td style="text-align:left"><code>moonlet bootstrap</code>: one outbound control socket, one outbound socket per pipe</td></tr>
+<tr><td style="text-align:left"><code>amp --headless</code> executor + tool leases</td><td style="text-align:left"><code>pi-env serve</code>, reached by pi-env’s own <code>RemoteExecutionEnv</code></td></tr>
+<tr><td style="text-align:left">Setup through <code>run</code>/<code>write_files</code></td><td style="text-align:left">A setup script run through the same <code>ExecutionEnv</code> (<a class="secref" href="#setup">§5.4</a>)</td></tr>
+</tbody></table>
+<figure class="listing" id="listing-4"><pre><code class="lang-text">user ─ CLI / UI ─▶ moonlet server
+                ├─ pi-durable Harness
+                │    └─ env() ─▶ RemoteExecutionEnv ─▶ pi-env Connection
+                │                                         │ spawns
+                │                                   moonlet relay
+                │                                         │ loopback WS
+                ├─ orb manager ◀───────────────── splice ─┘
+                │     ▲ control WS          ▲ pipe WS
+                │     └── orb: moonlet bootstrap ─ stdio ─ pi-env serve
+                └─ job queue ─▶ dispatch program ─▶ exe.dev, local, …</code></pre><figcaption><span class="label">Listing 4:</span> moonlet’s components. The orb only dials out; the control plane splices pipes it never parses.</figcaption></figure>
+<h3 id="control-plane"><span class="num">5.1</span> Control Plane</h3>
+<p>Each thread is a row pointing at a pi-durable conversation and an orb ID. A message is committed to the conversation the moment it arrives; the Harness then runs the turn as durable tasks: a generation task calls the model and owns one tool task per call. The bridge to the orb is pi-durable’s <code>env</code> option, a function the Harness calls whenever it needs a conversation’s execution environment: to render the system prompt and to run each tool.</p>
+<figure class="listing" id="listing-5"><pre class="numbered"><code class="lang-ts"><span class="ln"></span><span class="cl">env: <span class="k">async</span> ({ conversationId, cwd }) =&gt; {</span>
+<span class="ln"></span><span class="cl">	<span class="k">const</span> thread = store.threadByConversation(Number(conversationId));</span>
+<span class="ln"></span><span class="cl">	<span class="k">if</span> (!thread || !threads) <span class="k">return</span> <span class="k">undefined</span>;</span>
+<span class="ln"></span><span class="cl">	<span class="k">const</span> workspace = <span class="k">await</span> threads.prepare(thread); <span class="c">// spawn, connect, clone, .agents/setup</span></span>
+<span class="ln"></span><span class="cl">	<span class="k">return</span> <span class="k">new</span> RemoteExecutionEnv({</span>
+<span class="ln"></span><span class="cl">		connection: orbs.connection(thread.orb_id),</span>
+<span class="ln"></span><span class="cl">		id: <span class="s">`moonlet:${thread.orb_id}`</span>,</span>
+<span class="ln"></span><span class="cl">		cwd: cwd ?? workspace,</span>
+<span class="ln"></span><span class="cl">	});</span>
+<span class="ln"></span><span class="cl">},</span>
+</code></pre><figcaption><span class="label">Listing 5:</span> The env factory: the first use of a thread’s environment starts its orb.</figcaption></figure>
+<p>The registry installs pi-durable’s <code>CodingTools</code> (<code>read</code>, <code>write</code>, <code>edit</code>, <code>bash</code>) and one extension whose prompt section tells the model it is in a pausable remote machine. Because tools receive their environment from the factory, none of them knows the orb exists. Because the conversation is durable, a server restart mid-turn resumes the run, and a tool call cut off by a lost connection returns an <code>interrupted</code> error to the model, as pi-durable does for any crash.</p>
+<h3 id="the-pipe"><span class="num">5.2</span> The Pipe</h3>
+<p>pi-env already solves remote execution for pi-durable: a small Rust daemon, <code>pi-env serve</code>, performs file operations and commands on the remote machine and speaks a framed binary protocol over stdin and stdout, and <code>RemoteExecutionEnv</code> implements the full <code>ExecutionEnv</code> interface against it with results identical to a local <code>NodeExecutionEnv</code>. Its <code>Connection</code> normally starts the daemon through <code>ssh</code>. Orbs, however, accept no inbound connections, so moonlet substitutes the transport without touching the protocol.</p>
+<p><code>Connection</code> accepts an async <code>command</code> function and spawns whatever argv it returns, appending <code>serve --token &lt;hex&gt;</code>. moonlet returns the argv of its own <code>relay</code> subcommand, after first making sure the orb is connected. The 60-second start timeout of <code>Connection</code> begins only after the function returns, so waking or creating an orb inside it is safe.</p>
+<table class="tab">
+<thead><tr><th style="text-align:left">step</th><th style="text-align:left">actor</th><th style="text-align:left">action</th></tr></thead>
+<tbody>
+<tr><td style="text-align:left">1</td><td style="text-align:left">pi-env <code>Connection</code></td><td style="text-align:left">Calls <code>command()</code>; moonlet awaits <code>ensureRunning(orb)</code>, then returns <code>[moonlet, relay, &lt;orb&gt;]</code>.</td></tr>
+<tr><td style="text-align:left">2</td><td style="text-align:left"><code>moonlet relay</code></td><td style="text-align:left">Opens <code>/internal/relay/&lt;orb&gt;</code> on loopback with a per-process key, sending the daemon arguments.</td></tr>
+<tr><td style="text-align:left">3</td><td style="text-align:left">orb manager</td><td style="text-align:left">Allocates a pipe ID and sends <code>open-pipe {pipeId, args}</code> on the orb’s control socket.</td></tr>
+<tr><td style="text-align:left">4</td><td style="text-align:left"><code>moonlet bootstrap</code></td><td style="text-align:left">Starts <code>pi-env serve --token &lt;hex&gt;</code> and dials <code>/orb/pipe/&lt;pipeId&gt;</code> with its orb token.</td></tr>
+<tr><td style="text-align:left">5</td><td style="text-align:left">orb manager</td><td style="text-align:left">Splices the two sockets, flushing bytes buffered while the orb connected.</td></tr>
+</tbody></table>
+<p>From then on pi-env’s frames, pings and cancellations flow end to end. moonlet inspects only frame sizes: pi-env pings are fifteen bytes, so any larger message counts as activity for idle detection. When either side closes, the other is closed; pi-env’s daemon kills its process groups and exits when its stdin ends, so a dropped pipe cannot leave commands running.</p>
+<h3 id="orb-lifecycle"><span class="num">5.3</span> Orb Lifecycle</h3>
+<p>The orb manager keeps one row per orb with a status (<code>none</code>, <code>spawning</code>, <code>running</code>, <code>pausing</code>, <code>paused</code>, <code>deleting</code>, <code>deleted</code>, <code>error</code>) and a generation counter, plus in-memory control sockets, pipes and pi-env connections.</p>
+<table class="tab headerless"><tbody><tr><td class="term"><code>ensureRunning</code></td><td>Returns at once if the orb’s control socket has said hello. Otherwise it waits for any queued job of the orb, increments the generation, signs a token for <code>(orb, generation, expiry)</code>, queues a spawn job, and resolves when the bootstrap connects. A dispatch failure rejects immediately with the program’s output; a failed spawn is remembered for fifteen seconds so the many environment calls of one turn do not each retry it.</td></tr><tr><td class="term"><code>pause</code></td><td>Closes the orb’s pi-env connection, tells the bootstrap to shut down (close code 4409, which it treats as final), and queues a pause job. A timer pauses every orb that has no run in progress and no activity for <code>--idle-minutes</code>.</td></tr><tr><td class="term"><code>delete</code></td><td>The same, with a delete job, when the thread is removed.</td></tr></tbody></table>
+<p>A spawn counts as successful only when the bootstrap connects, not when the dispatch program exits zero (<a class="secref" href="#provider-and-jobs">§2.1</a>). Tokens are HMAC-signed and bound to a generation, so after a resume the previous bootstrap, frozen in the RAM snapshot and thawed with the VM, is refused when it tries to reconnect and exits. Jobs are claimed one orb at a time in order, so a resume cannot overtake the pause before it; jobs claimed by a provider that vanished are re-queued after ten minutes; the spawn token is removed from a job row once the job finishes.</p>
+<h3 id="setup"><span class="num">5.4</span> Setup</h3>
+<p>The first time a thread’s environment is needed, <code>prepare</code> runs once per orb: it waits for the orb, asks pi-env for the remote home directory, clones the thread’s repository into <code>~/workspace/repo</code> if there is one, runs <code>.agents/setup</code> if present, sets the conversation’s working directory, and appends a <code>moonlet.setup</code> entry with the exit code and output. The entry kind is not <code>pi.*</code>, so the user sees it and the model does not. A failed setup is recorded but does not block the thread, as in Amp. An optional <code>MOONLET_GIT_TOKEN</code> is passed to the clone as an HTTP header and never written into the orb’s git configuration.</p>
+<h3 id="dispatch"><span class="num">5.5</span> Dispatch</h3>
+<p>moonlet passes the same variables as Amp (<a class="secref" href="#provider-and-jobs">§2.1</a>) plus two: <code>ORB_SERVER_URL</code>, the control plane’s public URL, and <code>ORB_BOOTSTRAP</code>, the shell command to run in the orb. A dispatch program that runs <code>${ORB_BOOTSTRAP:-amp orb bootstrap}</code> therefore serves both systems, which is how <code>dispatch/exe-dev.sh</code> works. moonlet’s command fetches <code>/orb/install.sh</code>, which downloads the <code>moonlet</code> and <code>pi-env</code> binaries for the machine’s architecture, verifies their SHA-256 against a manifest, caches them in <code>~/.moonlet/bin</code>, and starts the bootstrap with <code>setsid -f</code>. An image needs only bash, curl and coreutils; the default exe.dev image works unmodified. <code>dispatch/local.sh</code> runs orbs as local processes with their own home directories, which exercises every path except the VM.</p>
+<h3 id="security"><span class="num">5.6</span> Security</h3>
+<table class="tab">
+<thead><tr><th style="text-align:left">boundary</th><th style="text-align:left">rule</th></tr></thead>
+<tbody>
+<tr><td style="text-align:left">Orb → control plane</td><td style="text-align:left">Outbound WebSockets only. Tokens travel in <code>Sec-WebSocket-Protocol</code> because WebSocket clients cannot set headers; they are signed, expiring, and bound to orb and generation.</td></tr>
+<tr><td style="text-align:left">Model credentials, transcripts</td><td style="text-align:left">Stay on the control plane. The orb sees file contents and command output, as its tools require.</td></tr>
+<tr><td style="text-align:left">API</td><td style="text-align:left">Bearer <code>apiToken</code>; providers use a separate <code>providerToken</code>; both generated once into <code>config.json</code> with mode 600.</td></tr>
+<tr><td style="text-align:left">Relay endpoint</td><td style="text-align:left">Loopback only, rejecting requests that carry proxy headers (a tunnel on the same host also connects from loopback), plus a per-process key.</td></tr>
+<tr><td style="text-align:left">Downloads</td><td style="text-align:left"><code>/orb/install.sh</code> and the binaries are public; they are open source and verified by hash.</td></tr>
+</tbody></table>
+<h2 id="results"><span class="num">6.</span> Results</h2>
+<p>Both systems were exercised end to end against the same exe.dev account. Times are wall clock from the control plane’s log.</p>
+<table class="tab">
+<thead><tr><th style="text-align:left">path</th><th style="text-align:left">measurement</th></tr></thead>
+<tbody>
+<tr><td style="text-align:left">moonlet, local dispatch</td><td style="text-align:left">Spawn, connect and setup under one second; the model’s <code>bash</code> call ran in the local orb; idle pause after two minutes; a follow-up resumed the orb as generation 2 with its files.</td></tr>
+<tr><td style="text-align:left">moonlet, exe.dev create</td><td style="text-align:left">VM created in 5 s; bootstrap downloaded (a 100 MB Bun binary) and connected 26 s later; clone and setup finished 32 s after the spawn.</td></tr>
+<tr><td style="text-align:left">moonlet, exe.dev pause</td><td style="text-align:left">Paused by the idle timer after 5 min in 2.9 s, RAM snapshotted.</td></tr>
+<tr><td style="text-align:left">moonlet, exe.dev resume</td><td style="text-align:left">7 s from the spawn request to the bootstrap’s hello; the repository and an uptime continuing across the pause confirmed a resume rather than a reboot.</td></tr>
+<tr><td style="text-align:left">Amp, exe.dev</td><td style="text-align:left">48 s to create from Amp’s image; thirty setup requests in five seconds; smoke test passed in a Debian 12 orb.</td></tr>
+</tbody></table>
+<p>The failures were as instructive as the successes. In moonlet, a dispatch error became a tool error result that the model reported in plain language, and the thread recovered on the next message without intervention, which is the behavior durable tool tasks were designed for.</p>
+<h2 id="open-questions"><span class="num">7.</span> Open Questions</h2>
+<p>Project snapshots are the largest missing piece. On exe.dev, <code>ssh exe.dev cp</code> can copy a prepared VM, but a copy is a running VM that counts against the plan’s VM cap, so the natural design (pause, copy, pause the copy) needs a cheaper primitive or a different provider.</p>
+<p>The terminal and portals have a clear path: pi-env already exposes a pseudo-terminal through <code>openTerminal(connection)</code>, so a terminal can ride the same pipe as tools, and portals can use the same splicing with a byte stream to a port instead of to <code>pi-env serve</code>. A Changes view needs only <code>git status</code> and <code>git diff</code> through the existing environment.</p>
+<p>Idle detection in moonlet is local to one process: it counts runs started through the API and non-ping pipe traffic. Runs resumed after a control-plane restart are not counted until the next message, so an orb could be paused during one; the run would then resume the orb on its next tool call, at the cost of a lost process.</p>
+<p>The bootstrap binary is 100 MB because it carries the Bun runtime. A bootstrap written in a compiled language, or in pi-env’s Rust next to the daemon, would shrink every first spawn by most of its download time.</p>
+<p>Finally, both providers currently run in terminal tabs. Amp’s documentation asks for a service manager so the provider survives reboots; the same applies to <code>moonlet server</code> and its tunnel, and a deployed control plane on a public host would replace the tunnel entirely.</p>
+
+</main>
+<script type="text/markdown" id="source-md">---
+title: Orbs: Architecture and an Open Implementation
+author: swair
+date: October 2026
+subtitle: How Amp's orbs work inside, how we self-hosted them on exe.dev, and how moonlet rebuilds them on pi-durable
+abstract: An orb is a remote machine that belongs to one agent thread. The agent works there instead of on the user's laptop; the machine sleeps when the thread goes idle and wakes when the next message arrives. This paper describes Amp's implementation as observed from inside a live self-hosted orb, records what it took to run Amp's orbs on exe.dev, and presents moonlet, an open implementation in which a pi-durable Harness replaces Amp's thread actor and pi-env's daemon replaces Amp's in-orb executor, while the machine-provisioning contract stays byte-for-byte compatible with Amp's.
+toc: true
+---
+
+## The Idea
+
+An orb separates three things that a local coding agent keeps in one process: the conversation, the model calls, and the machine on which tools run. The conversation and the model calls live on a server. The machine is disposable compute that can be paused for weeks at no cost and resumed in seconds with its files, and ideally its processes, intact. The agent therefore keeps working when the laptop is closed, many agents can run at once, and each has a whole machine to install dependencies, start services and prove its changes.
+
+Self-hosting changes who owns the machine but not the shape of the system. Amp states the requirement precisely: the infrastructure must start machines quickly, put them to sleep and resume them equally fast, keep them for a long time, and scale to zero so sleeping machines cost nothing. Everything else is protocol.
+
+### Vocabulary
+
+| term | meaning |
+|---|---|
+| thread | One agent conversation. Each thread owns at most one orb. |
+| orb | The machine assigned to a thread. Named `ORB_ID`, e.g. `amp-<thread-uuid>` or `moonlet-<id>`. |
+| control plane | The server that stores threads, calls the model and decides when orbs run. Amp's is ampcode.com; moonlet's is `moonlet server`. |
+| provider | A process inside the user's network that turns lifecycle jobs into machine operations: `amp orb provider` or `moonlet provider`. |
+| dispatch program | A user-supplied executable the provider runs once per job, configured only through `ORB_*` environment variables (§2.1). |
+| job | One lifecycle operation: `spawn` (create or resume), `pause`, or `delete`. |
+| bootstrap | The first process started inside an orb. It dials the control plane with a per-spawn token. |
+| executor | The in-orb component that actually runs tool calls. In Amp, `amp --headless`; in moonlet, `pi-env serve`. |
+| lease | Amp's claim on one tool call by one executor, with a deadline, re-issued after a reconnect. |
+| generation | moonlet's spawn counter for an orb. Tokens carry it; a token from an older generation is refused (§5.3). |
+
+## Amp's Architecture
+
+The decisive design choice is that the agent loop never runs in the orb. Every Amp thread is a Rivet actor on Amp's servers, keyed by the thread ID. The actor holds the transcript, calls the model, schedules tools, drives orb setup and enqueues lifecycle jobs. The orb is a remote executor: it registers tools, accepts leases, runs them and returns results. It holds no model keys and no Amp API key. Pausing an orb therefore never loses agent state, because there is none in the orb to lose.
+
+```text nonum caption="Amp's components. Every arrow into ampcode.com is an outbound connection from the user's network."
+ ampcode.com                                user's network
+┌────────────────────────────┐  HTTPS poll  ┌────────────────────────────┐
+│ thread actor (Rivet actor, │◄─────────────│ amp orb provider           │
+│   key = thread id)         │/api/internal │   runs dispatch.sh per job │
+│ agent loop + inference     │              └─────────────┬──────────────┘
+│ tool leases, setup driver  │                            │ spawn/pause/delete
+│ lifecycle job queue        │              ┌─────────────▼──────────────┐
+│                            │◄──── WSS ────│ orb: amp orb bootstrap     │
+│                            │◄──── WSS ────│      amp --headless        │
+│                            │◄─── tunnel ──│      terminal, desktop     │
+└────────────────────────────┘              └────────────────────────────┘
+```
+
+The evidence for this section comes from the processes, files and logs of a live orb on exe.dev, from the CLI binary's string table (its JavaScript is compiled to Bun bytecode), and from pointing `amp orb provider` and `amp orb bootstrap` at fake servers whose deliberately wrong replies made the CLI print the field names it validates. The full report is `docs/amp-orb-internals.md`.
+
+### Provider and Jobs
+
+`amp orb provider` speaks plain HTTPS JSON-RPC: `POST /api/internal?<method>` with body `{"method", "params"}` and the provider token `aop_live_…` as a bearer token. It long-polls for jobs, runs the dispatch program, streams the program's output back as the thread's setup log, and reports completion. It handles several jobs at once and updates itself, draining jobs before it restarts.
+
+| method | purpose |
+|---|---|
+| `orbSpawnerClaimJob` | Long poll. Returns `{claim: null}` or a claim with `id`, `attempt`, `timeoutMs`, `claimDeadlineAt` and the `job`. |
+| `orbSpawnerHeartbeatJob` | Extends the claim while the dispatch program runs. |
+| `orbSpawnerCompleteJob` | Reports the job finished. |
+| `orbSpawnerReleaseClaim` | Gives claims back on shutdown. |
+| `orbSpawnerWaitLogRead`, `orbSpawnerSendLogChunk` | Stream dispatch output to a thread that is watching its setup log. |
+
+The job itself is small: `op`, a `sandboxId` of the form `orb-provider:<config>:<orbId>`, a per-spawn `token`, an optional `snapshotId`, and an optional server URL. The provider translates it into the environment of the dispatch program, which is the entire contract between Amp and the user's infrastructure:
+
+| variable | value |
+|---|---|
+| `ORB_OPERATION` | `spawn`, `pause` or `delete`. |
+| `ORB_ID` | Machine name; repeated jobs for one orb carry the same ID. |
+| `ORB_IMAGE` | Image to boot; the provider's override or Amp's public orb image. |
+| `ORB_SNAPSHOT_ID` | Project snapshot to boot from (spawn) or to save (pause), §2.5. |
+| `ORB_TOKEN` | Spawn only. Short-lived credential for this spawn's bootstrap. |
+| `AMP_URL` | Spawn only, when the server is not ampcode.com. |
+
+A spawn must make the machine run and start `amp orb bootstrap` inside it as the image's default user, detached. A pause stops the machine and keeps its disk. A delete removes it. Every operation must be safe to repeat and finish within five minutes.
+
+Failure handling is weak at this layer. A dispatch program that exits non-zero still shows `✓ done` in the provider's output; its stderr becomes the thread's error line; and Amp re-issues the spawn only after two to three minutes. A spawn that exits zero but whose bootstrap never connects is indistinguishable from a slow one until Amp gives up.
+
+### Bootstrap
+
+The bootstrap exchanges its token for a location: `GET /api/orbs/bootstrap` with `Authorization: Bearer $ORB_TOKEN` returns `{threadId, sandboxId, rivetEndpoint, expiresAt}`. It then opens a WebSocket to the thread actor through Rivet's actor gateway:
+
+```text nonum
+GET {rivetEndpoint}/gateway/threadActor/websocket/?rvt-namespace=default&rvt-method=get&rvt-key=<threadId>
+Sec-WebSocket-Protocol: rivet, rivet_encoding.bare, rivet_conn_params.{"orbToken":…,"transport":"json-rpc"}
+```
+
+In production `rivetEndpoint` is a path under ampcode.com carrying a Rivet publishable key. Frames use Rivet's BARE envelope with JSON-RPC inside. Once connected, the bootstrap announces the sandbox and serves a small remote-exec and file API to the actor: `run`, `write_files`, `read_file`, `file_exists`, `remove_file`, `append_file`, `make_directory` and `truncate`. In the observed session the actor issued thirty such requests in five seconds to set the orb up (§2.4). A PID file keeps one bootstrap per machine, so on resume the dispatcher must kill the previous one or the new token is never used.
+
+### The Executor
+
+Tools do not run in the bootstrap. The actor uses the bootstrap to write `~/.env` and a supervisor script, and the supervisor loops forever starting `amp --headless=<thread>`. That process is a second Rivet client of the same actor. It authenticates with thread identity rather than the spawn token, which is why `ORB_TOKEN` never appears in `~/.env`.
+
+```text caption="One tool call between the thread actor and the headless executor." nonum
+actor → orb   tool_lease               {toolCallId, toolName, …args}
+orb   → actor executor_tool_lease_ack  {toolCallId}
+orb   → actor tool_progress            (streamed snapshots)
+orb   → actor executor_tool_result     {run: {status, result: {output, exitCode}}, workspaceChanged, timings}
+actor → orb   executor_tool_result_ack {toolCallId}
+```
+
+The handshake before the first lease sends `executor_connect` with capability tags, an environment snapshot (repository, platform, working directory), the guidance files and skills found in the workspace, and `executor_tools_register` with twenty-two tool names: `shell_command` and its async variants, `Read`, `edit_file`, `apply_patch`, `create_file`, `glob`, `Grep`, `web_search`, thread file transfer, and plugin and skill reloads. The model sees more tools than the orb registers because some run on the server. The actor also runs git directly through `executor_git_command` and `executor_git_diff_snapshot`, which is what fills the Changes view. Because a lease has a deadline, a call whose executor disappears is re-leased after reconnect (`client_resume`).
+
+A third process, the plugin runtime, is a Bun child speaking stdio JSON-RPC that contributes tools, skills and agent modes from installed plugins.
+
+### Setup
+
+Setup is driven entirely from the actor through the bootstrap's `run` and `write_files`:
+
+| step | what happens |
+|---|---|
+| Git | Clears old credential helpers; installs a helper that serves a bootstrap GitHub token for the clone, then `amp git-credential-helper` for short-lived tokens; rewrites SSH remotes to HTTPS; configures SSH commit signing through `amp-sign-commit`; installs a `gh` wrapper. |
+| Clone | Clones the project into `/home/user/workspace/repo`, unless the provider disables cloning for images that bring their own checkout. |
+| Runtime | Writes `~/.env` and the headless supervisor; waits for `executor_connected`. |
+| Hooks | Runs the project's pre-setup script and `.agents/setup` (or `.agents/resume` on resume), logging through `amp orb redact-output`. A successful setup is recorded and makes a project snapshot possible. |
+| Services | Reconciles `.amp/services.yaml` into supervised processes, each with a portal URL. |
+
+### Lifecycle
+
+Idle detection happens on the server: the actor knows when the agent has finished and how many observers are attached, and sends `pause` a few minutes after the thread goes quiet. The next message sends `spawn` again with a fresh token. On resume, a new bootstrap starts, the `resume` hook runs, the executor reconnects with `resumeBootstrap`, and unfinished leases are re-issued.
+
+A project snapshot is a paused orb with the repository cloned and `.agents/setup` already run. Amp saves one by sending `pause` with `ORB_SNAPSHOT_ID` followed by `spawn` for the same orb; the dispatcher stores a copy of the disk under that ID on pause. Later threads of the same project carry the ID on spawn, and a dispatcher that has the copy boots from it and skips setup. A dispatcher that ignores the variable merely runs setup every time.
+
+## What Orbs Support
+
+The machine is the agent's, but several features let a human share it. All of them reach the orb through outbound connections; nothing in the orb listens on a public interface.
+
+| feature | mechanism |
+|---|---|
+| Changes view, Ship | The actor runs `git status` and diff snapshots through the executor; pushes use the git credential helper (§2.4). |
+| Terminal | A shared tmux session behind a loopback terminal server, reached through Amp Tunnel (`tunnel.ampcode.com`). The agent and the human see the same session. |
+| Portals | Services from `.amp/services.yaml` or `amp orb service start`, supervised and restarted after resume, each exposed at a URL that only signed-in users with access to the thread can open. |
+| Desktop | A Wayland desktop with Chrome; `amp orb desktop ensure` prints a DevTools endpoint for browser automation. |
+| Files | Thread attachments, drag-and-drop into the file pane or terminal (up to 512 MB), and `amp sync` to mirror changes to a local checkout. |
+| Amp Net | Routes an orb's outbound traffic through an exit node on the user's own machine. |
+| Secrets | Workspace and project secrets written into `~/.env`, with output redaction by value. |
+| Snapshots | Project snapshots skip setup for new threads (§2.5). |
+| Sizes | Hosted orbs come in sizes from `a1.tiny` (1 CPU, 2 GB) to `a1.xxlarge`; self-hosted sizes are whatever the dispatch program creates. |
+
+## Self-Hosting on exe.dev
+
+exe.dev provides VMs that start in seconds, pause with their RAM snapshotted to disk, and resume in a few seconds, which meets Amp's requirements directly. The CLI is `ssh exe.dev <command>`; each VM is reachable as `ssh <name>.exe.xyz`.
+
+The setup required an Amp workspace (individual accounts have none until one is created; the workspace `swairshah` now holds the account's credits and shared threads), a custom orb provider named `exe-dev` registered under Settings → Orbs, and the provider process running locally with `exe-provider/dispatch.sh`. A thread selects the provider under Orb → Self-Hosted.
+
+```sh caption="The spawn branch of the exe.dev dispatch program, condensed."
+if [[ -z "$status" ]]; then
+	ssh exe.dev new --name="$ORB_ID" --image="$ORB_IMAGE" --cpu=2 --memory=8G --no-email
+elif [[ "$status" == paused ]]; then
+	ssh exe.dev resume "$ORB_ID"
+fi
+for _ in $(seq 1 30); do ssh "$ORB_ID.exe.xyz" true && break; sleep 2; done
+{ printf 'export ORB_TOKEN=%q\n' "$ORB_TOKEN"; cat <<'EOF'
+[ -e /dev/fd ] || ln -s /proc/self/fd /dev/fd
+sudo -u user --preserve-env=ORB_TOKEN,AMP_URL bash -lc \
+	'cd; setsid -f amp orb bootstrap </dev/null >>.amp-bootstrap.log 2>&1'
+EOF
+} | ssh "$ORB_ID.exe.xyz" bash -s
+```
+
+The first two spawns failed, and the third worked. Each failure taught something about the platform:
+
+| problem | consequence | fix |
+|---|---|---|
+| `ssh exe.dev new` splits its arguments on spaces. | `--comment="Amp orb"` became a stray positional argument and creation failed. | No flag value may contain a space. |
+| A fresh VM drops the first SSH session while it boots. | The VM existed but the bootstrap never started; Amp waited about three minutes. | Retry `ssh … true` until it succeeds; start the bootstrap with `setsid -f`. |
+| exe.dev guests have no `/dev/fd`. | Amp's setup hook redirects through `>(redact_output)` and dies, so setup is never cached and no snapshot is ever taken. | Link `/proc/self/fd` to `/dev/fd` before the bootstrap starts. |
+| The default image is listed as `boldsoftware/exeuntu` but is not pullable by that name. | Creation fails when it is passed to `--image`. | Omit `--image` for the default image. |
+| The Individual plan allows 50 VMs and 4 vCPUs and 16 GB in total. | Orb creation fails at the cap; paused orbs still count. | Delete finished orbs; size orbs small. |
+
+Creating a VM from Amp's orb image took 48 seconds, most of it pulling the image. Once running, the Amp smoke-test thread executed in a Debian 12 orb with two CPUs and 7.7 GB of memory. Amp had not sent a pause after ninety minutes with a browser tab still open on the thread, consistent with observer-based idle detection (§2.5).
+
+## Moonlet
+
+moonlet keeps Amp's shape and replaces every proprietary component. The control plane is a pi-durable Harness; the executor is pi-env's daemon; the provisioning contract is unchanged, so the exe.dev dispatch program above drives both systems.
+
+| Amp | moonlet |
+|---|---|
+| Rivet thread actor: transcript, inference, leases | pi-durable `Harness` over SQLite; one conversation per thread; tool calls are durable tasks |
+| `/api/internal?orbSpawner*` | `POST /api/provider/claim` (long poll) and `POST /api/provider/jobs/:id` |
+| `amp orb provider` | `moonlet provider`, or the same loop inside the server with `--dispatch` |
+| `amp orb bootstrap` + Rivet WebSocket | `moonlet bootstrap`: one outbound control socket, one outbound socket per pipe |
+| `amp --headless` executor + tool leases | `pi-env serve`, reached by pi-env's own `RemoteExecutionEnv` |
+| Setup through `run`/`write_files` | A setup script run through the same `ExecutionEnv` (§5.4) |
+
+```text caption="moonlet's components. The orb only dials out; the control plane splices pipes it never parses." nonum
+user ─ CLI / UI ─▶ moonlet server
+                ├─ pi-durable Harness
+                │    └─ env() ─▶ RemoteExecutionEnv ─▶ pi-env Connection
+                │                                         │ spawns
+                │                                   moonlet relay
+                │                                         │ loopback WS
+                ├─ orb manager ◀───────────────── splice ─┘
+                │     ▲ control WS          ▲ pipe WS
+                │     └── orb: moonlet bootstrap ─ stdio ─ pi-env serve
+                └─ job queue ─▶ dispatch program ─▶ exe.dev, local, …
+```
+
+### Control Plane
+
+Each thread is a row pointing at a pi-durable conversation and an orb ID. A message is committed to the conversation the moment it arrives; the Harness then runs the turn as durable tasks: a generation task calls the model and owns one tool task per call. The bridge to the orb is pi-durable's `env` option, a function the Harness calls whenever it needs a conversation's execution environment: to render the system prompt and to run each tool.
+
+```ts caption="The env factory: the first use of a thread's environment starts its orb."
+env: async ({ conversationId, cwd }) => {
+	const thread = store.threadByConversation(Number(conversationId));
+	if (!thread || !threads) return undefined;
+	const workspace = await threads.prepare(thread); // spawn, connect, clone, .agents/setup
+	return new RemoteExecutionEnv({
+		connection: orbs.connection(thread.orb_id),
+		id: `moonlet:${thread.orb_id}`,
+		cwd: cwd ?? workspace,
+	});
+},
+```
+
+The registry installs pi-durable's `CodingTools` (`read`, `write`, `edit`, `bash`) and one extension whose prompt section tells the model it is in a pausable remote machine. Because tools receive their environment from the factory, none of them knows the orb exists. Because the conversation is durable, a server restart mid-turn resumes the run, and a tool call cut off by a lost connection returns an `interrupted` error to the model, as pi-durable does for any crash.
+
+### The Pipe
+
+pi-env already solves remote execution for pi-durable: a small Rust daemon, `pi-env serve`, performs file operations and commands on the remote machine and speaks a framed binary protocol over stdin and stdout, and `RemoteExecutionEnv` implements the full `ExecutionEnv` interface against it with results identical to a local `NodeExecutionEnv`. Its `Connection` normally starts the daemon through `ssh`. Orbs, however, accept no inbound connections, so moonlet substitutes the transport without touching the protocol.
+
+`Connection` accepts an async `command` function and spawns whatever argv it returns, appending `serve --token <hex>`. moonlet returns the argv of its own `relay` subcommand, after first making sure the orb is connected. The 60-second start timeout of `Connection` begins only after the function returns, so waking or creating an orb inside it is safe.
+
+| step | actor | action |
+|---|---|---|
+| 1 | pi-env `Connection` | Calls `command()`; moonlet awaits `ensureRunning(orb)`, then returns `[moonlet, relay, <orb>]`. |
+| 2 | `moonlet relay` | Opens `/internal/relay/<orb>` on loopback with a per-process key, sending the daemon arguments. |
+| 3 | orb manager | Allocates a pipe ID and sends `open-pipe {pipeId, args}` on the orb's control socket. |
+| 4 | `moonlet bootstrap` | Starts `pi-env serve --token <hex>` and dials `/orb/pipe/<pipeId>` with its orb token. |
+| 5 | orb manager | Splices the two sockets, flushing bytes buffered while the orb connected. |
+
+From then on pi-env's frames, pings and cancellations flow end to end. moonlet inspects only frame sizes: pi-env pings are fifteen bytes, so any larger message counts as activity for idle detection. When either side closes, the other is closed; pi-env's daemon kills its process groups and exits when its stdin ends, so a dropped pipe cannot leave commands running.
+
+### Orb Lifecycle
+
+The orb manager keeps one row per orb with a status (`none`, `spawning`, `running`, `pausing`, `paused`, `deleting`, `deleted`, `error`) and a generation counter, plus in-memory control sockets, pipes and pi-env connections.
+
+`ensureRunning`
+: Returns at once if the orb's control socket has said hello. Otherwise it waits for any queued job of the orb, increments the generation, signs a token for `(orb, generation, expiry)`, queues a spawn job, and resolves when the bootstrap connects. A dispatch failure rejects immediately with the program's output; a failed spawn is remembered for fifteen seconds so the many environment calls of one turn do not each retry it.
+
+`pause`
+: Closes the orb's pi-env connection, tells the bootstrap to shut down (close code 4409, which it treats as final), and queues a pause job. A timer pauses every orb that has no run in progress and no activity for `--idle-minutes`.
+
+`delete`
+: The same, with a delete job, when the thread is removed.
+
+A spawn counts as successful only when the bootstrap connects, not when the dispatch program exits zero (§2.1). Tokens are HMAC-signed and bound to a generation, so after a resume the previous bootstrap, frozen in the RAM snapshot and thawed with the VM, is refused when it tries to reconnect and exits. Jobs are claimed one orb at a time in order, so a resume cannot overtake the pause before it; jobs claimed by a provider that vanished are re-queued after ten minutes; the spawn token is removed from a job row once the job finishes.
+
+### Setup
+
+The first time a thread's environment is needed, `prepare` runs once per orb: it waits for the orb, asks pi-env for the remote home directory, clones the thread's repository into `~/workspace/repo` if there is one, runs `.agents/setup` if present, sets the conversation's working directory, and appends a `moonlet.setup` entry with the exit code and output. The entry kind is not `pi.*`, so the user sees it and the model does not. A failed setup is recorded but does not block the thread, as in Amp. An optional `MOONLET_GIT_TOKEN` is passed to the clone as an HTTP header and never written into the orb's git configuration.
+
+### Dispatch
+
+moonlet passes the same variables as Amp (§2.1) plus two: `ORB_SERVER_URL`, the control plane's public URL, and `ORB_BOOTSTRAP`, the shell command to run in the orb. A dispatch program that runs `${ORB_BOOTSTRAP:-amp orb bootstrap}` therefore serves both systems, which is how `dispatch/exe-dev.sh` works. moonlet's command fetches `/orb/install.sh`, which downloads the `moonlet` and `pi-env` binaries for the machine's architecture, verifies their SHA-256 against a manifest, caches them in `~/.moonlet/bin`, and starts the bootstrap with `setsid -f`. An image needs only bash, curl and coreutils; the default exe.dev image works unmodified. `dispatch/local.sh` runs orbs as local processes with their own home directories, which exercises every path except the VM.
+
+### Security
+
+| boundary | rule |
+|---|---|
+| Orb → control plane | Outbound WebSockets only. Tokens travel in `Sec-WebSocket-Protocol` because WebSocket clients cannot set headers; they are signed, expiring, and bound to orb and generation. |
+| Model credentials, transcripts | Stay on the control plane. The orb sees file contents and command output, as its tools require. |
+| API | Bearer `apiToken`; providers use a separate `providerToken`; both generated once into `config.json` with mode 600. |
+| Relay endpoint | Loopback only, rejecting requests that carry proxy headers (a tunnel on the same host also connects from loopback), plus a per-process key. |
+| Downloads | `/orb/install.sh` and the binaries are public; they are open source and verified by hash. |
+
+## Results
+
+Both systems were exercised end to end against the same exe.dev account. Times are wall clock from the control plane's log.
+
+| path | measurement |
+|---|---|
+| moonlet, local dispatch | Spawn, connect and setup under one second; the model's `bash` call ran in the local orb; idle pause after two minutes; a follow-up resumed the orb as generation 2 with its files. |
+| moonlet, exe.dev create | VM created in 5 s; bootstrap downloaded (a 100 MB Bun binary) and connected 26 s later; clone and setup finished 32 s after the spawn. |
+| moonlet, exe.dev pause | Paused by the idle timer after 5 min in 2.9 s, RAM snapshotted. |
+| moonlet, exe.dev resume | 7 s from the spawn request to the bootstrap's hello; the repository and an uptime continuing across the pause confirmed a resume rather than a reboot. |
+| Amp, exe.dev | 48 s to create from Amp's image; thirty setup requests in five seconds; smoke test passed in a Debian 12 orb. |
+
+The failures were as instructive as the successes. In moonlet, a dispatch error became a tool error result that the model reported in plain language, and the thread recovered on the next message without intervention, which is the behavior durable tool tasks were designed for.
+
+## Open Questions
+
+Project snapshots are the largest missing piece. On exe.dev, `ssh exe.dev cp` can copy a prepared VM, but a copy is a running VM that counts against the plan's VM cap, so the natural design (pause, copy, pause the copy) needs a cheaper primitive or a different provider.
+
+The terminal and portals have a clear path: pi-env already exposes a pseudo-terminal through `openTerminal(connection)`, so a terminal can ride the same pipe as tools, and portals can use the same splicing with a byte stream to a port instead of to `pi-env serve`. A Changes view needs only `git status` and `git diff` through the existing environment.
+
+Idle detection in moonlet is local to one process: it counts runs started through the API and non-ping pipe traffic. Runs resumed after a control-plane restart are not counted until the next message, so an orb could be paused during one; the run would then resume the orb on its next tool call, at the cost of a lost process.
+
+The bootstrap binary is 100 MB because it carries the Bun runtime. A bootstrap written in a compiled language, or in pi-env's Rust next to the daemon, would shrink every first spawn by most of its download time.
+
+Finally, both providers currently run in terminal tabs. Amp's documentation asks for a service manager so the provider survives reboots; the same applies to `moonlet server` and its tunnel, and a deployed control plane on a public host would replace the tunnel entirely.
+</script>
+
+<script>(function(){
+var h=document.documentElement,b=document.querySelector('.theme-toggle'),k='monograph-theme';
+var saved=null;try{saved=localStorage.getItem(k)}catch(e){}
+if(saved==='light'||saved==='dark')h.setAttribute('data-theme',saved);
+function cur(){var t=h.getAttribute('data-theme');if(t)return t;return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}
+function label(){var t='Switch to '+(cur()==='dark'?'light':'dark')+' theme';b.setAttribute('aria-label',t);b.title=t}
+b.addEventListener('click',function(){var n=cur()==='dark'?'light':'dark';h.setAttribute('data-theme',n);try{localStorage.setItem(k,n)}catch(e){}label()});
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',label);label();
+})();</script>
+</body>
+</html>

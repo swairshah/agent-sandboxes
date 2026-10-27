@@ -1,0 +1,22 @@
+{
+  "read": ["~/work/projects"],
+  "write": [],
+  "deny": [],
+  "network": "on",
+  "env": {},
+  "seed": ["~/.gitconfig"],
+  "allowHostTools": [],
+  "checkpoint": {
+    "keepLast": 500,
+    "keepDays": 14,
+    "excludeCwd": []
+  },
+  "remote": {
+    "pullOnExit": "ask",
+    "modal": { "image": "node:22-bookworm", "timeoutMinutes": 120 },
+    "e2b": { "apiKey": "", "template": "base", "timeoutMinutes": 60 }
+  },
+  "projects": {
+    "~/work/some-project": { "read": ["~/work/shared-libs"], "network": "local" }
+  }
+}

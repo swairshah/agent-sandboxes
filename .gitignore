@@ -1,0 +1,32 @@
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Dependencies
+node_modules/
+
+# Build output and coverage
+dist/
+build/
+out/
+coverage/
+pi-sb/bin/
+
+# Caches and local runtime data
+.cache/
+.wrangler/
+.wasmer/
+*.tsbuildinfo
+*.sqlite*
+
+# Secrets and logs
+.env
+.env.*
+!.env.example
+*.log
+
+# Disposable nested sandbox repositories
+sbtest1/
+sbtest2/

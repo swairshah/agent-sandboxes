@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Python Browser Lab</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">&gt;_</span>
+          <div>
+            <h1>Python Browser Lab</h1>
+            <p>CPython running locally through Wasmer</p>
+          </div>
+        </div>
+
+        <div class="runtime-status" aria-live="polite">
+          <span class="status-dot" id="status-dot"></span>
+          <span id="status-text">Runtime loads on first run</span>
+        </div>
+      </header>
+
+      <section class="workspace" aria-label="Python playground">
+        <article class="panel editor-panel">
+          <header class="panel-header">
+            <div class="file-tab">
+              <span class="python-icon" aria-hidden="true">Py</span>
+              <span>main.py</span>
+            </div>
+
+            <button class="run-button" id="run" type="button">
+              <span class="play-icon" aria-hidden="true">▶</span>
+              <span>Run</span>
+              <kbd>⌘↵</kbd>
+            </button>
+          </header>
+
+          <label class="sr-only" for="editor">Python source code</label>
+          <textarea
+            id="editor"
+            class="editor"
+            spellcheck="false"
+            autocapitalize="off"
+            autocomplete="off"
+            aria-describedby="editor-help"
+          ></textarea>
+
+          <footer class="panel-footer">
+            <span id="editor-help">Tab inserts four spaces</span>
+            <span id="code-stats">1 line · 0 chars</span>
+          </footer>
+        </article>
+
+        <article class="panel output-panel">
+          <header class="panel-header output-header">
+            <div class="output-title">
+              <span class="terminal-prompt" aria-hidden="true">$</span>
+              <span>Output</span>
+            </div>
+            <button class="ghost-button" id="clear" type="button">Clear</button>
+          </header>
+
+          <pre id="output" class="output" aria-live="polite"><span class="muted">Run your code to see output here.</span></pre>
+
+          <footer class="panel-footer">
+            <span id="execution-state">Idle</span>
+            <span id="execution-time">—</span>
+          </footer>
+        </article>
+      </section>
+
+      <footer class="page-footer">
+        <span>Runs in your browser sandbox</span>
+        <span>Python and package data stay local</span>
+      </footer>
+    </main>
+
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "moonlet-pi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "pi extension: dispatch tasks to moonlet orbs that run on their own, and let them read this directory",
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}
